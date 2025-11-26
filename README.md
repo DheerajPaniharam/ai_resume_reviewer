@@ -17,13 +17,14 @@ To build an AI-powered tool that evaluates resumes using NLP and provides meanin
 
 ## 🧩 System Architecture
 User Uploads Resume (.pdf / .docx)
-           ↓
+           -->
    Text Extraction Module
-           ↓
+           -->
      NLP Processing Module
-           ↓
+           -->
    Keyword and Section Detection
-           ↓
+           -->
    Feedback + Score Generation
-           ↓
+           -->
     Result Display on Web Page
+
