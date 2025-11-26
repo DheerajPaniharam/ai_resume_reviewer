@@ -15,27 +15,6 @@ To build an AI-powered tool that evaluates resumes using NLP and provides meanin
 - PyPDF2, docx2txt
 - HTML, CSS (Bootstrap/Custom)
 
-##🧩 Project Folder Structure
-SmartScreen-AI-Resume-Reviewer/
-│
-├── app.py
-├── requirements.txt
-├── README.md
-│
-├── templates/
-│   └── index.html
-│
-├── static/
-│   └── style.css
-│
-├── utils/
-│   ├── __init__.py
-│   ├── text_extractor.py
-│   └── resume_analyzer.py
-│
-└── sample_resumes/
-    └── example_resume.pdf
-
 ## 🚀 How to Run
 1. Clone the repository:
    ```bash
@@ -43,3 +22,4 @@ SmartScreen-AI-Resume-Reviewer/
    cd SmartScreen-AI-Resume-Reviewer
 
    
+
