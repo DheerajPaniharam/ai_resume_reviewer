@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SmartScreen: Resume Analyzer & Scraper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script defer src="{{ url_for('static', filename='script.js') }}"></script>
+</head>
+<body>
+  <div class="page-shell">
+    <header class="app-header">
+      <div class="header-logo">
+        <svg class="logo-icon" viewBox="0 0 24 24" width="30" height="30">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" fill="currentColor"/>
+        </svg>
+        <div class="logo-text">
+          <h1>SmartScreen</h1>
+          <p class="subtitle">Resume Scraper & Keyword Matcher</p>
+        </div>
+      </div>
+      <div class="header-tagline">
+        <span class="pulse-dot"></span>
+        <p>Local Parser Active (Offline)</p>
+      </div>
+    </header>
+
+    <main class="main-grid">
+      <!-- Input Panel -->
+      <section class="panel panel-form">
+        {% if error %}
+          <div class="alert">
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" fill="currentColor"/>
+            </svg>
+            <span>{{ error }}</span>
+          </div>
+        {% endif %}
+
+        <div class="form-top">
+          <h2>Resume Settings</h2>
+          <p>Provide your resume and optional job details to receive a comprehensive analysis report.</p>
+        </div>
+
+        <form method="POST" enctype="multipart/form-data" id="analysis-form">
+          <div class="form-group">
+            <label for="job_title">Target Job Title</label>
+            <input id="job_title" name="job_title" type="text" placeholder="e.g., Software Engineer, Product Manager" value="{{ request.form.get('job_title', '') }}">
+          </div>
+
+          <div class="form-group">
+            <label for="job_description">Target Job Description (Optional)</label>
+            <textarea id="job_description" name="job_description" rows="4" placeholder="Paste the job listing text here to evaluate keyword matching and skill alignment..." class="jd-textarea">{{ request.form.get('job_description', '') }}</textarea>
+          </div>
+
+          <div class="form-group">
+            <label>Resume Source</label>
+            <div class="input-toggle-container">
+              <button type="button" class="toggle-btn active" data-target="upload-section">Upload File</button>
+              <button type="button" class="toggle-btn" data-target="text-section">Paste text</button>
+            </div>
+            
+            <input type="hidden" name="source_mode" id="source_mode" value="file">
+
+            <div class="input-sections">
+              <!-- Upload Section -->
+              <div class="input-section-content active" id="upload-section">
+                <div class="drag-drop-zone" id="drop-zone">
+                  <svg class="cloud-icon" viewBox="0 0 24 24" width="40" height="40">
+                    <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM14 13v4h-4v-4H7l5-5 5 5h-3z" fill="currentColor"/>
+                  </svg>
+                  <p class="dropzone-text">Drag and drop file here or <span class="browse-link">browse</span></p>
+                  <p class="dropzone-sub">Supports PDF, DOCX, TXT up to 5MB</p>
+                  <input id="resume" type="file" name="resume" accept=".pdf,.docx,.txt" class="file-input-hidden">
+                  <div id="file-name-display" class="file-name-display hidden">
+                    <span class="file-icon">📄</span>
+                    <span class="file-name"></span>
+                    <button type="button" class="btn-clear-file" id="btn-clear-file">✕</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Text Section -->
+              <div class="input-section-content" id="text-section">
+                <textarea id="resume_text" name="resume_text" rows="8" placeholder="Paste your resume's raw text content here...">{{ request.form.get('resume_text', '') }}</textarea>
+              </div>
+            </div>
+          </div>
+
+          <button type="submit" class="btn-submit primary">
+            <span class="btn-spinner hidden" id="btn-spinner"></span>
+            <span class="btn-text">Analyze Resume</span>
+          </button>
+        </form>
+
+        {% if history %}
+        <div class="history-panel">
+          <h3>Recent Analyses History</h3>
+          <div class="history-list">
+            {% for item in history %}
+              <div class="history-card">
+                <div class="history-card-header">
+                  <span class="history-title">{{ item['job_title'] }}</span>
+                  <span class="history-score-badge">{{ item['score'] }}%</span>
+                </div>
+                <div class="history-card-details">
+                  <p><span>Sections:</span> {{ item['sections'] | join(', ') }}</p>
+                  <p><span>Keywords:</span> {{ item['keywords'] | join(', ') }}</p>
+                  <span class="history-meta">{{ item['timestamp'] }}</span>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endif %}
+      </section>
+
+      <!-- Result Panel -->
+      <section class="panel panel-result {% if not result %}empty-state-active{% endif %}">
+        {% if result %}
+          <div class="result-header">
+            <div class="score-card-layout">
+              <div class="score-circle-wrapper">
+                <svg class="score-ring" viewBox="0 0 120 120">
+                  <defs>
+                    <linearGradient id="score-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#6366f1" />
+                      <stop offset="100%" stop-color="#a855f7" />
+                    </linearGradient>
+                  </defs>
+                  <circle class="score-ring-bg" cx="60" cy="60" r="52"></circle>
+                  <circle class="score-ring-progress" cx="60" cy="60" r="52" stroke-dasharray="326.7" stroke-dashoffset="326.7" data-score="{{ result['score'] }}"></circle>
+                </svg>
+                <div class="score-center">
+                  <span class="score-number" id="score-counter">0</span><span class="score-percent">%</span>
+                </div>
+              </div>
+              
+              <div class="score-details">
+                <p class="eyebrow">Overall Rating</p>
+                <h2>Resume Score</h2>
+                <p class="result-subtitle">Target Job: <span>{{ result['job_target'] or 'General Resume' }}</span></p>
+                <div class="result-actions">
+                  <button type="button" class="btn secondary btn-copy" onclick="copyReportToClipboard()">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                      <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                    </svg>
+                    <span>Copy Markdown Report</span>
+                  </button>
+                  <button type="button" class="btn secondary btn-copy" id="btn-export-json" onclick="downloadJSONReport()">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                      <path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/>
+                    </svg>
+                    <span>Export JSON</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quick Metrics Grid -->
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <span class="metric-label">Word Count</span>
+              <strong class="metric-value">{{ result['word_count'] }}</strong>
+              <span class="metric-status">Ideal: 300 - 800</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Experience Span</span>
+              <strong class="metric-value">{{ result['experience_years'] }} yrs</strong>
+              <span class="metric-status">Years estimated</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Bullet Points</span>
+              <strong class="metric-value">{{ result['bullet_count'] }}</strong>
+              <span class="metric-status">{{ result['bullet_stats']['starting_with_verb'] }} start with verbs</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Metrics density</span>
+              <strong class="metric-value">{{ result['metrics_count'] }}</strong>
+              <span class="metric-status">Quantifiable data</span>
+            </div>
+          </div>
+
+          <!-- Section Weight Breakdown -->
+          <div class="breakdown-section">
+            <h3>Scoring Breakdown</h3>
+            <div class="breakdown-grid">
+              {% for label, value in result['score_breakdown'].items() %}
+                {% set max_val = 20 if label in ['keywords', 'sections'] else 15 if label in ['action_verbs', 'formatting', 'metrics'] else 10 if label == 'target_alignment' else 5 %}
+                {% set percentage = ((value / max_val) * 100) | round | int %}
+                <div class="breakdown-item">
+                  <div class="breakdown-header">
+                    <span class="breakdown-label">{{ label.replace('_', ' ').title() }}</span>
+                    <span class="breakdown-value">{{ value }}/{{ max_val }} ({{ percentage }}%)</span>
+                  </div>
+                  <div class="progress-bar-bg">
+                    <div class="progress-bar-fill" style="width: {{ percentage }}%"></div>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+
+          <!-- Interactive Tabs -->
+          <div class="results-tab-container">
+            <div class="tabs-header" id="tabs-header">
+              <button type="button" class="tab-btn active" data-tab="tab-critiques">Critiques & Fixes</button>
+              <button type="button" class="tab-btn" data-tab="tab-keywords">Skills Map</button>
+              <button type="button" class="tab-btn" data-tab="tab-bullet-optimizer">Bullet Optimizer</button>
+              <button type="button" class="tab-btn" data-tab="tab-ats-contact">ATS & Contact</button>
+              <button type="button" class="tab-btn" data-tab="tab-preview">Document Preview</button>
+            </div>
+
+            <div class="tabs-body">
+              <!-- Tab 1: Critiques -->
+              <div class="tab-content active" id="tab-critiques">
+                <div class="feedback-groups-container">
+                  <!-- High Priority -->
+                  <div class="feedback-group">
+                    <h4 class="group-title text-high">
+                      <span class="badge bg-high">High Priority</span> Required Actions
+                    </h4>
+                    <ul class="checklist-items">
+                      {% set has_high = namespace(value=false) %}
+                      {% for fb in result['feedback'] %}
+                        {% if fb.startswith('[High]') %}
+                          <li class="checklist-item">
+                            <input type="checkbox" id="check-high-{{ loop.index }}" class="checklist-checkbox">
+                            <label for="check-high-{{ loop.index }}">
+                              <span class="custom-checkbox"></span>
+                              <span class="checklist-text">{{ fb.replace('[High] ', '').replace('[High]', '') }}</span>
+                            </label>
+                          </li>
+                          {% set has_high.value = true %}
+                        {% endif %}
+                      {% endfor %}
+                      {% if not has_high.value %}
+                        <li class="checklist-item empty-state-check">
+                          <span class="check-icon success">✓</span>
+                          <span class="checklist-text text-muted">All critical structural checks passed successfully!</span>
+                        </li>
+                      {% endif %}
+                    </ul>
+                  </div>
+
+                  <!-- Medium Priority -->
+                  <div class="feedback-group">
+                    <h4 class="group-title text-medium">
+                      <span class="badge bg-medium">Medium Priority</span> Core Adjustments
+                    </h4>
+                    <ul class="checklist-items">
+                      {% set has_med = namespace(value=false) %}
+                      {% for fb in result['feedback'] %}
+                        {% if fb.startswith('[Medium]') %}
+                          <li class="checklist-item">
+                            <input type="checkbox" id="check-med-{{ loop.index }}" class="checklist-checkbox">
+                            <label for="check-med-{{ loop.index }}">
+                              <span class="custom-checkbox"></span>
+                              <span class="checklist-text">{{ fb.replace('[Medium] ', '').replace('[Medium]', '') }}</span>
+                            </label>
+                          </li>
+                          {% set has_med.value = true %}
+                        {% endif %}
+                      {% endfor %}
+                      {% if not has_med.value %}
+                        <li class="checklist-item empty-state-check">
+                          <span class="check-icon success">✓</span>
+                          <span class="checklist-text text-muted">All semantic alignment and density items are optimal!</span>
+                        </li>
+                      {% endif %}
+                    </ul>
+                  </div>
+
+                  <!-- Low Priority -->
+                  <div class="feedback-group">
+                    <h4 class="group-title text-low">
+                      <span class="badge bg-low">Low Priority</span> Polish & Optimizations
+                    </h4>
+                    <ul class="checklist-items">
+                      {% set has_low = namespace(value=false) %}
+                      {% for fb in result['feedback'] %}
+                        {% if fb.startswith('[Low]') %}
+                          <li class="checklist-item">
+                            <input type="checkbox" id="check-low-{{ loop.index }}" class="checklist-checkbox">
+                            <label for="check-low-{{ loop.index }}">
+                              <span class="custom-checkbox"></span>
+                              <span class="checklist-text">{{ fb.replace('[Low] ', '').replace('[Low]', '') }}</span>
+                            </label>
+                          </li>
+                          {% set has_low.value = true %}
+                        {% endif %}
+                      {% endfor %}
+                      {% if not has_low.value %}
+                        <li class="checklist-item empty-state-check">
+                          <span class="check-icon success">✓</span>
+                          <span class="checklist-text text-muted">Your resume formatting is fully polished.</span>
+                        </li>
+                      {% endif %}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 2: Skills Map -->
+              <div class="tab-content" id="tab-keywords">
+                {% if result['job_description'] %}
+                  <div class="skills-jd-header">
+                    <div class="match-badge">
+                      <span>Job Fit Match:</span>
+                      <strong>{{ result['alignment_details']['score'] }}%</strong>
+                    </div>
+                    <p class="tab-desc">Below are matching and missing skills relative to the job posting description:</p>
+                  </div>
+                  
+                  <div class="skills-alignment-grid">
+                    <div class="skills-column matched-skills">
+                      <h4>Matched Skills ({{ result['alignment_details']['matched'] | length }})</h4>
+                      <div class="pills-container">
+                        {% for skill in result['alignment_details']['matched'] %}
+                          <span class="pill pill-success">{{ skill }}</span>
+                        {% else %}
+                          <p class="text-muted small">No overlapping technical skills detected.</p>
+                        {% endfor %}
+                      </div>
+                    </div>
+                    
+                    <div class="skills-column missing-skills">
+                      <h4>Missing Skills ({{ result['alignment_details']['missing'] | length }})</h4>
+                      <div class="pills-container">
+                        {% for skill in result['alignment_details']['missing'] %}
+                          <span class="pill pill-danger">{{ skill }}</span>
+                        {% else %}
+                          <p class="text-muted small">Zero missing skills. You cover all parsed requirements!</p>
+                        {% endfor %}
+                      </div>
+                    </div>
+                  </div>
+                {% else %}
+                  <div class="jd-prompt-banner">
+                    <span class="banner-icon">💡</span>
+                    <div>
+                      <p><strong>Want deeper matching?</strong> Paste the full job advertisement description into the left settings panel to run advanced skill matching and extract missing buzzwords.</p>
+                    </div>
+                  </div>
+                {% endif %}
+
+                <div class="resume-categorized-skills">
+                  <h3>All Detected Resume Skills (by Category)</h3>
+                  <div class="cat-skills-grid">
+                    {% for cat, list in result['categorized_keywords'].items() %}
+                      <div class="cat-skills-card">
+                        <h5>{{ cat }}</h5>
+                        <div class="pills-container">
+                          {% for item in list %}
+                            <span class="pill pill-primary">{{ item }}</span>
+                          {% endfor %}
+                        </div>
+                      </div>
+                    {% else %}
+                      <p class="text-muted">No keywords library matches detected. Try adding explicit software engineering languages or keywords.</p>
+                    {% endfor %}
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 3: Bullet Optimizer -->
+              <div class="tab-content" id="tab-bullet-optimizer">
+                <div class="tab-intro">
+                  <h3>Bullet Point Phrasing Optimizer</h3>
+                  <p>The parser flagged experience bullet statements that could be enhanced by starting with strong action verbs or integrating quantifiable business metrics. Try these suggested rewrites:</p>
+                </div>
+
+                <div class="rewrites-list">
+                  {% for item in result['bullet_rewrites'] %}
+                    <div class="rewrite-card">
+                      <div class="rewrite-side before">
+                        <span class="side-tag tag-before">Original Bullet</span>
+                        <p class="bullet-text">“{{ item['before'] }}”</p>
+                      </div>
+                      <div class="rewrite-divider">
+                        <span class="arrow-down">➔</span>
+                      </div>
+                      <div class="rewrite-side after">
+                        <span class="side-tag tag-after">Optimized Suggestion</span>
+                        <p class="bullet-text" id="rewrite-text-{{ loop.index }}">“{{ item['after'] }}”</p>
+                        <button type="button" class="btn btn-copy-small" onclick="copySnippet('rewrite-text-{{ loop.index }}', this)">
+                          Copy Text
+                        </button>
+                      </div>
+                    </div>
+                  {% endfor %}
+                </div>
+              </div>
+
+              <!-- Tab 4: ATS & Contact -->
+              <div class="tab-content" id="tab-ats-contact">
+                <div class="ats-grid">
+                  <div class="ats-card-left">
+                    <div class="ats-score-box">
+                      <div class="ats-score-circle-small">
+                        <strong>{{ result['ats_compatibility']['score'] }}%</strong>
+                      </div>
+                      <div class="ats-score-info">
+                        <h4>ATS Readability Rating</h4>
+                        {% if result['ats_compatibility']['is_compatible'] %}
+                          <span class="badge-status good">ATS COMPATIBLE</span>
+                        {% else %}
+                          <span class="badge-status warning">OPTIMIZATION NEEDED</span>
+                        {% endif %}
+                      </div>
+                    </div>
+
+                    <div class="ats-pitfalls-container">
+                      <h5>Layout Parser Analysis</h5>
+                      <ul class="ats-pitfalls-list">
+                        {% for pit in result['ats_compatibility']['pitfalls'] %}
+                          <li class="pit-item">
+                            <span class="pit-bullet">✕</span>
+                            <span class="pit-text">{{ pit }}</span>
+                          </li>
+                        {% else %}
+                          <li class="pit-item-success">
+                            <span class="pit-bullet-success">✓</span>
+                            <span class="pit-text">Layout looks extremely clean and linear. Ready for parsing systems!</span>
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    </div>
+                  </div>
+
+                  <div class="contact-extracted-card">
+                    <h4>Extracted Contact Header</h4>
+                    <p class="tab-desc">This is what automated database scrapers extract from your document header:</p>
+                    <div class="contact-info-table">
+                      <div class="contact-row">
+                        <span class="contact-label">Email</span>
+                        <span class="contact-value">
+                          {{ result['contact_info'].get('email') | join(', ') if result['contact_info'].get('email') else 'Not detected' }}
+                        </span>
+                      </div>
+                      <div class="contact-row">
+                        <span class="contact-label">Phone</span>
+                        <span class="contact-value">
+                          {{ result['contact_info'].get('phone') | join(', ') if result['contact_info'].get('phone') else 'Not detected' }}
+                        </span>
+                      </div>
+                      <div class="contact-row">
+                        <span class="contact-label">LinkedIn</span>
+                        <span class="contact-value">
+                          {% if result['contact_info'].get('linkedin') %}
+                            {% for l in result['contact_info'].get('linkedin') %}
+                              <a href="https://{{ l }}" target="_blank">{{ l }}</a>
+                            {% endfor %}
+                          {% else %}
+                            Not detected
+                          {% endif %}
+                        </span>
+                      </div>
+                      <div class="contact-row">
+                        <span class="contact-label">GitHub</span>
+                        <span class="contact-value">
+                          {% if result['contact_info'].get('github') %}
+                            {% for g in result['contact_info'].get('github') %}
+                              <a href="https://{{ g }}" target="_blank">{{ g }}</a>
+                            {% endfor %}
+                          {% else %}
+                            Not detected
+                          {% endif %}
+                        </span>
+                      </div>
+                      <div class="contact-row">
+                        <span class="contact-label">Websites</span>
+                        <span class="contact-value">
+                          {% if result['contact_info'].get('website') %}
+                            {% for w in result['contact_info'].get('website') %}
+                              <a href="{{ w }}" target="_blank">{{ w.replace('https://', '').replace('http://', '') }}</a>
+                            {% endfor %}
+                          {% else %}
+                            Not detected
+                          {% endif %}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Tab 5: Document Preview -->
+              <div class="tab-content" id="tab-preview">
+                <h3>Extracted Raw Text Stream</h3>
+                <p class="tab-desc">This panel displays the exact layout-neutral string captured by the document parser. Review for text alignment or character rendering bugs.</p>
+                <div class="preview-textarea-container">
+                  <pre class="raw-preview-text" id="raw-preview-content">{{ result['preview_text'] }}...</pre>
+                </div>
+              </div>
+            </div>
+          </div>
+        {% else %}
+          <div class="empty-state">
+            <div class="empty-state-illustration">
+              <svg viewBox="0 0 24 24" width="70" height="70" fill="currentColor">
+                <path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 10H7v-2h10v2zm0-4H7V7h10v2zm0 8H7v-2h10v2z"/>
+              </svg>
+            </div>
+            <h3>SmartScreen Assessment</h3>
+            <p>Upload a file (PDF, DOCX, or TXT) or paste your resume content in the left panel to begin. We will calculate an ATS score and identify key improvements.</p>
+          </div>
+        {% endif %}
+      </section>
+    </main>
+  </div>
+
+  <!-- Hidden elements to parse python dict in JS for JSON Export -->
+  {% if result %}
+    <script id="result-json-data" type="application/json">
+      {
+        "score": {{ result['score'] }},
+        "job_target": "{{ result['job_target'] }}",
+        "word_count": {{ result['word_count'] }},
+        "experience_years": {{ result['experience_years'] }},
+        "metrics_count": {{ result['metrics_count'] }},
+        "bullet_count": {{ result['bullet_count'] }},
+        "score_breakdown": {
+          {% for label, val in result['score_breakdown'].items() %}
+            "{{ label }}": {{ val }}{% if not loop.last %},{% endif %}
+          {% endfor %}
+        },
+        "feedback": [
+          {% for fb in result['feedback'] %}
+            "{{ fb.replace('"', '\\"') }}"{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        "strengths": [
+          {% for s in result['strengths'] %}
+            "{{ s.replace('"', '\\"') }}"{% if not loop.last %},{% endif %}
+          {% endfor %}
+        ],
+        "contact_info": {
+          "email": {{ result['contact_info'].get('email', []) | tojson }},
+          "phone": {{ result['contact_info'].get('phone', []) | tojson }},
+          "linkedin": {{ result['contact_info'].get('linkedin', []) | tojson }},
+          "github": {{ result['contact_info'].get('github', []) | tojson }},
+          "website": {{ result['contact_info'].get('website', []) | tojson }}
+        }
+      }
+    </script>
+  {% endif %}
+</body>
+</html>
